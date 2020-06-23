@@ -4,34 +4,45 @@ from scipy import signal
 import matplotlib.pyplot as plt
 
 def downsample(s,factor):
+    # Reduce the samplerate of a Signal by a positive integer factor that divides the
+    # original samplerate.
+    factor=int(factor)
+    if factor<=0:
+        raise ValueError("Factor has to be greater than 0")
     if s.sr%factor!=0:
         raise ValueError("Factor has to be a divisor of the sample rate")
     sr=int(s.sr/factor)
     data=s.data[::factor]
     return [1,Signal(data,sr)]
 
-def detect_hits(sig,win_buf_len,win_size,step_size,mask,hit_delta,sleep_after_hit):
+def onset_detection(sig,win_buf_len,win_size,step_size,mask,hit_factor,hit_delta,sleep_after_hit,normalize=True):
+    # Detect onsets in a signal. All oarameters except for sig controll the
+    # behavior of the detection algorithm. See drum_environment.py for details.
+    # This method works online, i.e. to decide if an onset is present at the
+    # current position, it only takes into account past unformation and not
+    # upcoming datapoints.
     def form(window):
         return sum([mask[i]*abs(window[i]) for i in range(len(window))])/len(window)
 
     def decision(val,l):
-        return val>sum(l)/len(l)*hit_delta
+        # print("v="+str(val)+", l="+str(l) + ", d=" +str(min(l)*hit_factor +hit_delta))
+        # print()
+        return val>min(l)*hit_factor +hit_delta
 
-    window_buffer=[0 for i in range(win_buf_len)]
+    window_buffer=[0]*win_buf_len
     ind=0
     all_window_values=[]
     hit_signal_data=[]
     sleep_timer=0
-    ones=[1 for i in range(step_size)]
-    zeroes=[0 for i in range(step_size)]
-    
+    ones=[1]*step_size
+    zeroes=[0]*step_size
+    bound=win_buf_len*step_size
     while ind<len(sig.data):        
         current_window=sig.data[ind:ind+win_size]
-
         if len(current_window)==win_size:
             s=form(current_window)
             all_window_values.append(((ind,ind+win_size),s))
-            if ind!=0:
+            if ind>=bound:
                 if decision(s,window_buffer) and sleep_timer==0:
                     hit_signal_data=hit_signal_data + ones
                     sleep_timer=max(sleep_after_hit,win_buf_len+1)
@@ -50,7 +61,10 @@ def detect_hits(sig,win_buf_len,win_size,step_size,mask,hit_delta,sleep_after_hi
     all_window_values=[(i[0],i[1]/m) for i in all_window_values]
     return [1,Signal(hit_signal_data,sig.sr),all_window_values]
 
-def data_by_seconds(sig,start, end, enlarge=True):
+def data_by_seconds(sig,start,end, enlarge=True):
+    # Get the data of a signal in a certain time interval. The enlarge parameter
+    # controls if the resulting signal should be slightlly smaller or slightly
+    # bigger if rounding error occur.
     if enlarge:
         start=floor(start*sampleRate)
         end=ceil(end*sampleRate)
@@ -60,9 +74,44 @@ def data_by_seconds(sig,start, end, enlarge=True):
     return sig.data[start:end]
 
 def length_in_seconds(sig):
+    # Get the duration of the signal in seconds.
     return len(sig.data)/sig.sr
 
+def cut_from_middle(cropsignal,length):
+    # Return a signal of the specificed length and whose data is taken from the
+    # middle of the provided signal.
+    if length>len(cropsignal.data):
+        raise ValueError
+    cropstart=(len(cropsignal.data)-length)
+    cropstart=int(cropstart/2)
+    cropend=cropstart+length
+    return Signal(cropsignal.data[cropstart:cropend],cropsignal.sr)
+
+def add(s1,s2,scale=True):
+    # Add two signals together. If scale is set to true, the signal with the
+    # smaller maximal amplitude will be scaled so that its maximal amplitude
+    # matchesthe one of the other signal.
+    if s1.sr!=s2.sr:
+        raise ValueError
+    d1=s1.data
+    d2=s2.data
+    if len(d1)<len(d2):
+        d1=d1+[0]*(len(d2)-len(d1))
+    else:
+        d2=d2+[0]*(len(d1)-len(d2))
+    if not scale:
+       return Signal([i+j for i,j in zip(d1,d2)],s1.sr)
+    a1=max([abs(i) for i in d1])
+    a2=max([abs(i) for i in d2])
+    if a2>a1:
+        d1,d2=d2,d1
+        a1,a2=a2,a1
+    return Signal([i+a1/a2*j for i,j in zip(d1,d2)],s1.sr)
+ 
 def visualize(sigs,windows):
+    # Visualization of the spectrogram, the waveform and the hit detection for a
+    # signal. The redrawing routine is not optimized, as this is just meant for
+    # visual debugging.
     slider_stepsize=1000
     
     fig, axs = plt.subplots(nrows=2)
@@ -83,11 +132,9 @@ def visualize(sigs,windows):
         fig.canvas.draw_idle()
 
     def update_axis_1(ival_start,window_index,interval_in_seconds,updateLabels=True):
-        interval_in_hz=interval_in_seconds*sigs[0].sr
+        interval_in_hz=int(interval_in_seconds*sigs[0].sr)
         ival_end=ival_start+interval_in_hz
         window_index=window_index
-        if updateLabels:
-            labels=axs[1].xaxis.get_ticklabels()
         axs[1].clear()
         for i in sigs:
             d=i.data[ival_start:ival_end]
@@ -95,18 +142,21 @@ def visualize(sigs,windows):
             waveform,=axs[1].plot(d)
 
         if windows[window_index][0][0] >= ival_start and windows[window_index][0][0]<=ival_end:
-            axs[1].scatter(x=range(windows[window_index][0][0]-ival_start,windows[window_index][0][1]-ival_start),y=[windows[window_index][1] for i in range(windows[window_index][0][1]-windows[window_index][0][0])],color="red",zorder=10,marker="s",s=13)
-
+            v=windows[window_index][1]
+            axs[1].scatter(x=range(windows[window_index][0][0]-ival_start,windows[window_index][0][1]-ival_start),y=[v for i in range(windows[window_index][0][1]-windows[window_index][0][0])],color="red",zorder=10,marker="s",s=13)
+            if v< 0.7:
+                axs[1].text(x=windows[window_index][0][1]-ival_start,y=v+0.2,s=str(round(v,3)))
+            else:
+                axs[1].text(x=windows[window_index][0][1]-ival_start,y=v-0.3,s=str(round(v,3)))
+        
         axs[1].set_xmargin(0)
         axs[1].set_ybound(lower=-1,upper=1)
 
-
         if updateLabels:
-            j=ival_start
-            difference=int(labels[1].get_text())-int(labels[0].get_text())
-            for i in labels:
-                i.set_text(str(j))
-                j=j+difference
+            labels=axs[1].xaxis.get_ticklabels()
+            locs=axs[1].xaxis.get_majorticklocs()
+            for i in range(len(labels)):
+                labels[i].set_text(str(int(ival_start+locs[i])))
             axs[1].xaxis.set_ticklabels(labels)
         fig.canvas.draw_idle()
 
@@ -116,7 +166,7 @@ def visualize(sigs,windows):
     def slider_callback_on_changed(val):
         ival_start=int(val)
         window_index=int(window_text_box.text)
-        ival_length=int(length_text_box.text)
+        ival_length=float(length_text_box.text)
         update_axis_0(ival_start,ival_length)
         update_axis_1(ival_start,window_index,ival_length)
 
@@ -132,7 +182,7 @@ def visualize(sigs,windows):
 
     def window_button_fwd_callback_on_clicked(val):
         v=int(window_text_box.text)+1
-        if v<=len(windows):
+        if v<=len(windows)-1:
             window_text_box.set_val(str(v))
         
     def window_button_bwd_callback_on_clicked(val):
@@ -143,14 +193,14 @@ def visualize(sigs,windows):
     def length_text_box_callback_on_submit(val):
         window_index=int(window_text_box.text)
         ival_start=int(slider.val)
-        ival_length=int(val)
+        ival_length=float(val)
         update_axis_0(ival_start,ival_length)
         update_axis_1(ival_start,window_index,ival_length)
         
     def window_text_box_callback_on_submit(val):
         window_index=int(val)
         ival_start=int(slider.val)
-        ival_length=int(length_text_box.text)
+        ival_length=float(length_text_box.text)
         update_axis_1(ival_start,window_index,ival_length)
         
         
@@ -179,10 +229,15 @@ def visualize(sigs,windows):
     window_btn_fwd.on_clicked(window_button_fwd_callback_on_clicked)
     window_btn_bwd = Button(window_btn_bwd_axis, 'Down')
     window_btn_bwd.on_clicked(window_button_bwd_callback_on_clicked)
+
     plt.show()
+
 
     
 class Signal:
+    # Signal class. Contains the data, the sampling rate, and the short time
+    # fourier transform as frequencies, time steps, and amplitudes. Length and
+    # overlap of the FFT segments are fixed.
 
     def __init__(self,data,samplerate):
         self.data=data
