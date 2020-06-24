@@ -31,3 +31,7 @@ mask=[1 for i in range(win_size)]
 # Not used in the onset detection, but beforehand to reduce the sampling rate of
 # signals.
 samplefactor=5
+
+percentage=0.75
+hit_delta_spec=0.0005
+look_back=2
