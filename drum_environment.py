@@ -35,3 +35,7 @@ samplefactor=5
 percentage=0.75
 hit_delta_spec=0.0005
 look_back=2
+
+root_folder="/home/maximilian/drummidi/"
+
+process_all=False
