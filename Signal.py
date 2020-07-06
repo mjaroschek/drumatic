@@ -24,7 +24,7 @@ def read_wavefile(filename,start=0,length=0,unit="s"):
             if f.channels>1:
                 data=[i[0] for i in f.read()]
             else:
-                data=[i for i in f.read()]
+                data=f.read()
             sr=f.samplerate
     else:
         info=sf.info(filename)
@@ -48,7 +48,7 @@ def read_wavefile(filename,start=0,length=0,unit="s"):
             if info.channels>1:
                 data=[i[0] for i in block]
             else:
-                data=[i for i in block]
+                data=block
         blocks.close()
     return Signal(data,sr)
 
@@ -64,7 +64,7 @@ def downsample(sig,factor):
     data=sig.data[::factor]
     return [1,Signal(data,sr)]
 
-def onset_detection(sig,win_buf_len,win_size,step_size,mask,hit_factor,hit_delta,sleep_after_hit,normalize=True):
+def onset_detection(sig,win_buf_len,win_size,step_size,mask,onset_factor,onset_delta,sleep_after_onset,normalize=True):
     # Detect onsets in a signal. All oarameters except for sig controll the
     # behavior of the detection algorithm. See drum_environment.py for details.
     # This method works online, i.e. to decide if an onset is present at the
@@ -74,14 +74,14 @@ def onset_detection(sig,win_buf_len,win_size,step_size,mask,hit_factor,hit_delta
         return sum([mask[i]*abs(window[i]) for i in range(len(window))])/len(window)
 
     def decision(val,l):
-        # print("v="+str(val)+", l="+str(l) + ", d=" +str(min(l)*hit_factor +hit_delta))
+        # print("v="+str(val)+", l="+str(l) + ", d=" +str(min(l)*onset_factor +onset_delta))
         # print()
-        return val>min(l)*hit_factor +hit_delta
+        return val>min(l)*onset_factor +onset_delta
 
     window_buffer=[0]*win_buf_len
     ind=0
     all_window_values=[]
-    hit_signal_data=[]
+    onset_signal_data=[]
     sleep_timer=0
     ones=[1]*step_size
     zeroes=[0]*step_size
@@ -93,81 +93,81 @@ def onset_detection(sig,win_buf_len,win_size,step_size,mask,hit_factor,hit_delta
             all_window_values.append(((ind,ind+win_size),s))
             if ind>=bound:
                 if decision(s,window_buffer) and sleep_timer==0:
-                    hit_signal_data=hit_signal_data + ones
-                    sleep_timer=max(sleep_after_hit,win_buf_len+1)
+                    onset_signal_data=onset_signal_data + ones
+                    sleep_timer=max(sleep_after_onset,win_buf_len+1)
                 else:
-                    hit_signal_data=hit_signal_data + zeroes
+                    onset_signal_data=onset_signal_data + zeroes
             else:
-                hit_signal_data=hit_signal_data + zeroes
+                onset_signal_data=onset_signal_data + zeroes
             window_buffer.append(s)
             window_buffer=window_buffer[1:win_buf_len+1]
         ind=ind+step_size
         if sleep_timer > 0:
            sleep_timer=sleep_timer-1
 
-    hit_signal_data=hit_signal_data + [0]*(len(sig.data)-len(hit_signal_data))
+    onset_signal_data=onset_signal_data + [0]*(len(sig.data)-len(onset_signal_data))
     m=max([i[1] for i in all_window_values])
     all_window_values=[(i[0],i[1]/m) for i in all_window_values]
-    return [1,Signal(hit_signal_data,sig.sr),all_window_values]
+    return [1,Signal(onset_signal_data,sig.sr),all_window_values]
 
-def onset_detection_spec(sig,win_buf_len,percentage,hit_delta,look_back,sleep_after_hit):
+def onset_detection_spec(sig,win_buf_len,percentage,onset_delta,look_back,sleep_after_onset):
     # Detect onsets via the stft.
     def decision(current_window,past_window):
         s=0
         old=[max([abs(j) for j in i]) for i in zip(*past_window[:2])]
         new=[max([abs(j) for j in i]) for i in zip(*(past_window[-look_back-1:-1]+[current_window]))]
         for i,j in zip(new,old):
-            if i>=j+hit_delta:
+            if i>=j+onset_delta:
                 s=s+1
         return s>percentage*len(current_window)
         
-    hit_signal_data=[0]*len(sig.data)
+    onset_signal_data=[0]*len(sig.data)
     spec=[[i[j] for i in sig.spec] for j in range(len(sig.spec[0]))]
     sleep_timer=0
     window_buffer=spec[:win_buf_len]
-    window_step_differenhce=sig.stft_window_length-sig.stft_window_overlap
+    window_step_difference=sig.stft_window_length-sig.stft_window_overlap
     
-    for j in range(len(spec)):
-        s=spec[j]
+    for j,s in enumerate(spec,start=1):
         if j%10000==0:
             print("        " + str(j) + "/" + str(len(spec)))
-        hit_detected=False
+        onset_detected=False
         if sleep_timer > 0:
             sleep_timer=sleep_timer-1
         if sleep_timer==0 and decision(s,window_buffer):
-            hit_signal_data[j*window_step_difference:(j+1)*window_step_difference]=[1]*window_step_difference
-            sleep_timer=sleep_after_hit
+            onset_signal_data[j*window_step_difference:(j+1)*window_step_difference]=[1]*window_step_difference
+            sleep_timer=sleep_after_onset
         window_buffer=window_buffer[1:win_buf_len]+[s]
-        j=j+1
                             
-    hit_signal_data=hit_signal_data + [0]*(len(sig.data)-len(hit_signal_data))
-    return [1,Signal(hit_signal_data,sig.sr)]
+    onset_signal_data=onset_signal_data + [0]*(len(sig.data)-len(onset_signal_data))
+    return [1,Signal(onset_signal_data,sig.sr)]
 
-def onset_detection_with_model(sig,m,sleep_after_hit):
+def onset_detection_with_model(sig,m,sleep_after_onset):
     # Detect onsets via a trained model that takes the stft data of the signal.
     def decision(start,end):
         p=create_datapoint(sig,start,end)
+        if m.predict([p])[0]==1:
+            print("hier")
         return m.predict([p])[0]==1
-    
-    hit_signal_data=[0]*len(sig.data)
+
+    onset_signal_data=[0]*len(sig.data)
     sleep_timer=0
     window_step_difference=sig.stft_window_length-sig.stft_window_overlap
-
-    for j in range(look_back*window_step_difference,len(sig.spec)):
+    print(look_back*window_step_difference)
+    for j in range(look_back,len(sig.spec)):
         if j%10000==0:
             print("        " + str(j) + "/" + str(len(sig.spec)))
-        start=j-look_back*window_step_difference
-        end=j+sig.stft_window_length
-        hit_detected=False
+        start=j*window_step_difference-look_back*window_step_difference
+        end=j*window_step_difference+sig.stft_window_length
+        onset_detected=False
         if sleep_timer > 0:
             sleep_timer=sleep_timer-1
         if sleep_timer==0 and decision(start,end):
-            hit_signal_data[j*window_step_difference:(j+1)*window_step_difference]=[1]*window_step_difference
-            sleep_timer=sleep_after_hit
+            onset_signal_data[j*window_step_difference:(j+1)*window_step_difference]=[1]*window_step_difference
+            sleep_timer=sleep_after_onset
         j=j+1
                             
-    hit_signal_data=hit_signal_data + [0]* (len(sig.data)-len(hit_signal_data))
-    return [1,Signal(hit_signal_data,sig.sr)]
+    onset_signal_data=onset_signal_data + [0]* (len(sig.data)-len(onset_signal_data))
+    return [1,Signal(onset_signal_data,sig.sr)]
 
 def data_by_seconds(sig,start,end,enlarge=True):
     # Get the data of a signal in a certain time interval. The enlarge parameter
@@ -234,9 +234,9 @@ def read_signals(filename):
     return signals
     
 def visualize(sigs,windows=None):
-    # Visualization of the spectrogram, the waveform and the hit detection for a
-    # signal. The redrawing routine is not optimized, as this is just meant for
-    # visual debugging.
+    # Visualization of the spectrogram, the waveform and the onset detection for
+    # a signal. The redrawing routine is not optimized, as this is just meant
+    # for visual debugging.
     slider_stepsize=1000
     
     fig, axs = plt.subplots(nrows=2)
@@ -263,7 +263,7 @@ def visualize(sigs,windows=None):
         axs[1].clear()
         for i in sigs:
             d=i.data[ival_start:ival_end]
-            d=d+[0 for i in range(interval_in_hz-len(d))]
+            d=d+[0]*(interval_in_hz-len(d))
             waveform,=axs[1].plot(d)
 
         if windows!=None and windows[window_index][0][0] >= ival_start and windows[window_index][0][0]<=ival_end:

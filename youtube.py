@@ -1,6 +1,3 @@
-import os
-os.chdir("/home/maximilian/drummidi/")
-
 from random import *
 from pytube import YouTube
 import moviepy.editor as mp
@@ -14,14 +11,10 @@ def download():
     # Download the audio track of a youtube video and save it as a raw audio
     # file
     
-    # Set path where the yt lists are stored
-    list__collection_path=root_folder+"yt_lists/"
-    # specify if you want to redownload already downloaded videos
-
-    files = os.listdir(list_collection_path)
+    files = os.listdir(path_to_lists)
 
     for file in files:
-        f = open(list_collection_path + file)
+        f = open(path_to_lists + file)
         url_list=f.read().splitlines()
         list_path=root_folder + file.split(".")[0] +"/"
         try:
@@ -31,9 +24,7 @@ def download():
         processed_ids=[i[:-4] for i in os.listdir(list_path)]
         f.close()
 
-        j=0
-        for url in url_list:
-            j=j+1
+        for j,url in enumerate(url_list,start=1):
             name=url.split("v=")[-1]
             if process_all or not name in processed_ids:
                 print("Downloading: " + name + "    ("+str(j)+"/"+str(len(url_list))+")")
@@ -48,18 +39,13 @@ def download():
 def onset_detection():
     # Perform onset detection on the raw audio files and save the binary signal
     # as a .sig file.
-    
-    path=root_folder+"drums/"
-    onset_path=root_folder + "onsets/"
 
-    ids=[i.split(".wav")[0] for i in os.listdir(path)]
+    ids=[i.split(".wav")[0] for i in os.listdir(path_to_sound)]
 
-    j=0
-    for i in ids:
-        j=j+1
-        filename=path + i +".wav"
+    for j,i in enumerate(ids,start=1):
+        filename=path_to_sound + i +".wav"
 
-        if os.path.isfile(onset_path+i+".sig") and not process_all:
+        if os.path.isfile(path_to_onset+i+".sig") and not process_all:
             continue
 
         print("Processing: " + i + "    ("+str(j)+"/"+str(len(ids))+")")
@@ -67,32 +53,25 @@ def onset_detection():
         s=read_wavefile(filename)
         print("    Finished reading")
 
-        p=Pipeline([lambda x:onset_detection_spec(x,win_buf_len,percentage,hit_delta_spec,look_back,sleep_after_hit)])
+        p=Pipeline([lambda x:onset_detection_spec(x,win_buf_len,percentage,onset_delta_spec,look_back,sleep_after_onset)])
 
         print("    Starting pipeline")
         (sigs,_)=p.apply(s)
 
         try:
-            os.makedirs(onset_path)
+            os.makedirs(path_to_onset)
         except FileExistsError:
             pass
-        save_signal(sigs[-1],onset_path + i + ".sig")
+        save_signal(sigs[-1],path_to_onset + i + ".sig")
 
 def mix():
     # Mix ambient sound into the drum sounds
     seed(982365)
-
-    path_to_sound=root_folder + "drums/"
-    path_to_noise=root_folder + "noise/"
-    path_to_mixed=root_folder + "mixed/"
-    path_to_ambient=root_folder + "ambient/"
-
+    
     ids=[i.split(".wav")[0] for i in os.listdir(path_to_sound)]
-    noise_files=[i for i in os.listdir(path_to_noise)]
+    noise_files=os.listdir(path_to_noise)
 
-    j=0
-    for i in ids:
-        j=j+1
+    for j,i in enumerate(ids,start=1):
         filename=path_to_sound + i +".wav"
 
         if os.path.isfile(path_to_mixed+i+".wav") and not process_all:
@@ -113,14 +92,6 @@ def mix():
         save_wavefile(noise,path_to_ambient+i+".wav")
     
 def create_training_data():
-        onset_filename=root_folder + "data/onset.txt"
-        onset_signals_filename=root_folder + "data/onset.sig"
-        no_onset_filename=root_folder + "data/no_onset.txt"
-        no_onset_signals_filename=root_folder + "data/no_onset.sig"
-        path_to_mixed=root_folder + "mixed/"
-        path_to_onset=root_folder + "onsets/"
-        path_to_ambient=root_folder + "ambient/"
-
         ids=[i.split(".wav")[0] for i in os.listdir(path_to_mixed)]
         datapoints=0
 
@@ -132,15 +103,16 @@ def create_training_data():
         f=open(no_onset_signals_filename,"w")
         f.close()
         
-        for i,j in zip(ids,range(1,len(ids)+1)):
+        for j,i in enumerate(ids,start=1):        
             print("Processing: " + i + "    ("+str(j)+"/"+str(len(ids))+")")
             onset_signal=read_signals(path_to_onset+i+".sig")[0]
             sound_signal=read_wavefile(path_to_mixed+i+".wav")
             ambient_signal=read_wavefile(path_to_ambient+i+".wav")
-            for j in range(0,len(sound_signal.data),onset_signal.stft_window_length):
+            window_step_difference=onset_signal.stft_window_length-onset_signal.stft_window_overlap
+            for j in range(0,len(sound_signal.data),window_step_difference):
                 if onset_signal.data[j]==1:
                     datapoints=datapoints+2
-                    start=j-look_back*onset_signal.stft_window_length
+                    start=j-look_back*window_step_difference
                     end=j+onset_signal.stft_window_length
                     d=create_datapoint(sound_signal,start,end)
                     save_signal(Signal(sound_signal.data[start:end],sound_signal.sr),onset_signals_filename,True)
