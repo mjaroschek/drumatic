@@ -70,3 +70,7 @@ no_onset_signals_filename=path_to_data + "no_onset.sig"
 # onsets, creating training data -- is performed on all specified yt videos, even
 # if they were already processed.
 process_all=True
+
+# Options for STFT computation
+stft_window_length=256
+stft_window_overlap=128

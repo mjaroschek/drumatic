@@ -1,4 +1,4 @@
-from numpy import ceil,floor,sqrt,flipud,log10,gcd,round,float64
+from numpy import ceil,floor,sqrt,flipud,log10,gcd,round,float64,linspace,zeros,absolute,dot,where,finfo
 from matplotlib.widgets import Slider,Button,TextBox
 from scipy import signal
 from random import randint
@@ -7,13 +7,56 @@ import soundfile as sf
 from drum_environment import *
 
 def create_datapoint(sig,start,end):
-    data=Signal(sig.data[start:end],sig.sr).spec
-    return sum([i.tolist() for i in data],[])
+    spec=normalize(Signal(sig.data[start:end],sig.sr)).spec_scaled()
+    spec=[[i[j] for i in spec] for j in range(len(spec[0]))]
+    return sum([i for i in spec],[])
 
 def perturb_zeroes(sig):
     m=min([abs(i) for i in sig.data if i!=0])
-    return [1,Signal([i if i!=0 else m for i in sig.data],sig.sr)]
+    return Signal([i if i!=0 else m for i in sig.data],sig.sr)
 
+def pre_emphasis_filter(sig,coeff=0.97):
+    # Pre emphasis filter helps to improve the s2n ratio and balance the
+    # frequency spectrum since high frequencies usually have smaller magnitudes
+    # compared to lower frequencies. See
+    # https://haythamfayek.com/2016/04/21/speech-processing-for-machine-learning.html
+    return Signal([i-coeff*j for i,j in zip(sig.data,sig.data[1:] + [0])],sig.sr)
+
+def mel_scale_filter(sig,nfilt=40):
+    # From
+    # https://haythamfayek.com/2016/04/21/speech-processing-for-machine-learning.html
+    # and
+    # http://practicalcryptography.com/miscellaneous/machine-learning/guide-mel-frequency-cepstral-coefficients-mfccs/
+    low_freq_mel = 0
+    high_freq_mel = (2595 * log10(1 + (sig.sr / 2) / 700))  
+    mel_points = linspace(low_freq_mel, high_freq_mel, nfilt + 2)
+    hz_points = (700 * (10**(mel_points / 2595) - 1))
+    bin = floor((sig.stft_window_length + 1) * hz_points / sig.sr)
+    pow_frames=power_spectrum(sig)
+    pow_frames = [[i[j] for i in pow_frames] for j in range(len(pow_frames[0]))]
+    
+    fbank = zeros((nfilt, int(floor(sig.stft_window_length / 2 + 1))))
+    for m in range(1, nfilt + 1):
+        f_m_minus = int(bin[m - 1])
+        f_m = int(bin[m])          
+        f_m_plus = int(bin[m + 1]) 
+
+        for k in range(f_m_minus, f_m):
+            fbank[m - 1, k] = (k - bin[m - 1]) / (bin[m] - bin[m - 1])
+        for k in range(f_m, f_m_plus):
+            fbank[m - 1, k] = (bin[m + 1] - k) / (bin[m + 1] - bin[m])
+    filter_banks = dot(pow_frames, fbank.T)
+    filter_banks = where(filter_banks == 0, finfo(float).eps, filter_banks)
+    filter_banks = 20 * log10(filter_banks)
+    return [[i[j] for i in filter_banks] for j in range(len(filter_banks[0]))]
+
+def discrete_cosine_transform():
+    pass
+
+def signal_from_spectrogram(spec,sr,window_length,window_overlap):
+    data=signal.istft(spec, fs=sr, nperseg=window_length, noverlap=window_overlap)
+    return Signal(data[1].tolist(),sr)
+    
 def save_wavefile(sig,filename):
     sf.write(filename,sig.data,sig.sr)
 
@@ -24,7 +67,7 @@ def read_wavefile(filename,start=0,length=0,unit="s"):
             if f.channels>1:
                 data=[i[0] for i in f.read()]
             else:
-                data=f.read()
+                data=f.read().tolist()
             sr=f.samplerate
     else:
         info=sf.info(filename)
@@ -50,7 +93,7 @@ def read_wavefile(filename,start=0,length=0,unit="s"):
             else:
                 data=block
         blocks.close()
-    return Signal(data,sr)
+    return Signal(data,sr,computeAll=True)
 
 def downsample(sig,factor):
     # Reduce the samplerate of a Signal by a positive integer factor that divides the
@@ -62,7 +105,7 @@ def downsample(sig,factor):
         raise ValueError("Factor has to be a divisor of the sample rate")
     sr=int(sig.sr/factor)
     data=sig.data[::factor]
-    return [1,Signal(data,sr)]
+    return Signal(data,sr)
 
 def onset_detection(sig,win_buf_len,win_size,step_size,mask,onset_factor,onset_delta,sleep_after_onset,normalize=True):
     # Detect onsets in a signal. All oarameters except for sig controll the
@@ -108,7 +151,7 @@ def onset_detection(sig,win_buf_len,win_size,step_size,mask,onset_factor,onset_d
     onset_signal_data=onset_signal_data + [0]*(len(sig.data)-len(onset_signal_data))
     m=max([i[1] for i in all_window_values])
     all_window_values=[(i[0],i[1]/m) for i in all_window_values]
-    return [1,Signal(onset_signal_data,sig.sr),all_window_values]
+    return [Signal(onset_signal_data,sig.sr),all_window_values]
 
 def onset_detection_spec(sig,win_buf_len,percentage,onset_delta,look_back,sleep_after_onset):
     # Detect onsets via the stft.
@@ -122,7 +165,7 @@ def onset_detection_spec(sig,win_buf_len,percentage,onset_delta,look_back,sleep_
         return s>percentage*len(current_window)
         
     onset_signal_data=[0]*len(sig.data)
-    spec=[[i[j] for i in sig.spec] for j in range(len(sig.spec[0]))]
+    spec=[[i[j] for i in sig.spec()] for j in range(len(sig.spec()[0]))]
     sleep_timer=0
     window_buffer=spec[:win_buf_len]
     window_step_difference=sig.stft_window_length-sig.stft_window_overlap
@@ -130,7 +173,6 @@ def onset_detection_spec(sig,win_buf_len,percentage,onset_delta,look_back,sleep_
     for j,s in enumerate(spec,start=1):
         if j%10000==0:
             print("        " + str(j) + "/" + str(len(spec)))
-        onset_detected=False
         if sleep_timer > 0:
             sleep_timer=sleep_timer-1
         if sleep_timer==0 and decision(s,window_buffer):
@@ -139,35 +181,33 @@ def onset_detection_spec(sig,win_buf_len,percentage,onset_delta,look_back,sleep_
         window_buffer=window_buffer[1:win_buf_len]+[s]
                             
     onset_signal_data=onset_signal_data + [0]*(len(sig.data)-len(onset_signal_data))
-    return [1,Signal(onset_signal_data,sig.sr)]
+    return Signal(onset_signal_data,sig.sr)
 
 def onset_detection_with_model(sig,m,sleep_after_onset):
     # Detect onsets via a trained model that takes the stft data of the signal.
     def decision(start,end):
         p=create_datapoint(sig,start,end)
-        if m.predict([p])[0]==1:
-            print("hier")
         return m.predict([p])[0]==1
 
     onset_signal_data=[0]*len(sig.data)
     sleep_timer=0
     window_step_difference=sig.stft_window_length-sig.stft_window_overlap
-    print(look_back*window_step_difference)
-    for j in range(look_back,len(sig.spec)):
-        if j%10000==0:
-            print("        " + str(j) + "/" + str(len(sig.spec)))
-        start=j*window_step_difference-look_back*window_step_difference
-        end=j*window_step_difference+sig.stft_window_length
-        onset_detected=False
+
+    for j in range(look_back*window_step_difference,len(sig.data)-sig.stft_window_length,window_step_difference):
+        start=j-look_back*window_step_difference
+        end=j+sig.stft_window_length
         if sleep_timer > 0:
             sleep_timer=sleep_timer-1
         if sleep_timer==0 and decision(start,end):
-            onset_signal_data[j*window_step_difference:(j+1)*window_step_difference]=[1]*window_step_difference
+            onset_signal_data[j:j+window_step_difference]=[1]*window_step_difference
             sleep_timer=sleep_after_onset
-        j=j+1
                             
     onset_signal_data=onset_signal_data + [0]* (len(sig.data)-len(onset_signal_data))
-    return [1,Signal(onset_signal_data,sig.sr)]
+    return Signal(onset_signal_data,sig.sr)
+
+def normalize(sig):
+    m=max([abs(i) for i in sig.data])
+    return Signal([i/m for i in sig.data], sig.sr)
 
 def data_by_seconds(sig,start,end,enlarge=True):
     # Get the data of a signal in a certain time interval. The enlarge parameter
@@ -247,12 +287,12 @@ def visualize(sigs,windows=None):
 
     def update_axis_0(ival_start,interval_in_seconds):
         ival_start_in_seconds=ival_start/sigs[0].sr
-        ind_t0=max(int(floor(ival_start_in_seconds/sigs[0].t[1])),0)
-        ind_t1=min(int(ceil((ival_start_in_seconds+interval_in_seconds)/sigs[0].t[1])),len(sigs[0].t)-1)
+        ind_t0=max(int(floor(ival_start_in_seconds/sigs[0].t()[1])),0)
+        ind_t1=min(int(ceil((ival_start_in_seconds+interval_in_seconds)/sigs[0].t()[1])),len(sigs[0].t())-1)
         
-        extent = sigs[0].t[ind_t0], sigs[0].t[ind_t1], sigs[0].freqs[0], sigs[0].freqs[-1]
+        extent = sigs[0].t()[ind_t0], sigs[0].t()[ind_t1], sigs[0].freqs()[0], sigs[0].freqs()[-1]
         axs[0].clear()
-        axs[0].imshow(flipud([i[ind_t0:ind_t1] for i in sigs[0].spec_scaled]),extent=extent)
+        axs[0].imshow(flipud([i[ind_t0:ind_t1] for i in sigs[0].spec_scaled()]),extent=extent)
         axs[0].axis('auto')
         fig.canvas.draw_idle()
 
@@ -364,11 +404,48 @@ class Signal:
     # fourier transform as frequencies, time steps, and amplitudes. Length and
     # overlap of the FFT segments are fixed.
 
-    def __init__(self,data,samplerate):
+    def __init__(self,data,samplerate,computeAll=False):
         self.data=data
         self.sr=samplerate
-        self.stft_window_length=256
-        self.stft_window_overlap=128
-        (self.freqs,self.t,self.spec)=signal.stft(self.data,fs=self.sr,nperseg=self.stft_window_length,noverlap=self.stft_window_overlap)
-        self.spec=[sqrt(i.real**2+i.imag**2) for i in self.spec]
-        self.spec_scaled=[10. * log10(i) for i in self.spec]
+        self.stft_window_length=stft_window_length
+        self.stft_window_overlap=stft_window_overlap
+        self.times=[]
+        self.frequencies=[]
+        self.spectrogram=[]
+        self.spectrogram_scaled=[]
+        self.ps=[]
+        if computeAll:
+            self.__computeSTFT__()
+            self.power_spectrum()
+        
+    def __computeSTFT__(self):
+        (self.frequencies,self.times,self.spectrogram)=signal.stft(self.data,fs=self.sr,nperseg=self.stft_window_length,noverlap=self.stft_window_overlap)
+        self.spectrogram=[sqrt(i.real**2+i.imag**2) for i in self.spectrogram]
+        self.spectrogram_scaled=[10. * log10(i) for i in self.spectrogram]
+
+    def freqs(self):
+        if len(self.frequencies)==0:
+            self.__computeSTFT__()
+        return self.frequencies
+
+    def t(self):
+        if len(self.times)==0:
+            self.__computeSTFT__()
+        return self.times
+
+    def spec(self):
+        if len(self.spectrogram)==0:
+            self.__computeSTFT__()
+        return self.spectrogram
+
+    def spec_scaled(self):
+        if len(self.spectrogram_scaled)==0:
+            self.__computeSTFT__()
+        return self.spectrogram_scaled
+
+    def power_spectrum(self):
+        if len(self.ps)==0:
+            if len(self.spectrogram)==0:
+                self.__computeSTFT__()
+            self.ps=(absolute(self.spectrogram)**2)/self.stft_window_length
+        return self.ps

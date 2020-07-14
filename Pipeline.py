@@ -11,9 +11,13 @@ class Pipeline:
         signal_out=[]
         for f in self.queue:
             output=f(signal)
-            signal=output[output[0]]
+            if type(output)==list:
+                signal=output[0]
+                extra_output.append([output[i] for i in range(1,len(output))])
+            else:
+                signal=output
+                extra_output.append([])
             signal_out.append(signal)
-            extra_output.append([output[i+1] for i in range(len(output)-1) if i!=output[0]-1])
         return (signal_out,extra_output)
 
     def __str__(self):

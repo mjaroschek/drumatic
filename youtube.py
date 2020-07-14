@@ -6,11 +6,12 @@ import pickle
 from drum_environment import *
 from Pipeline import Pipeline
 from numpy import savez
+import os
 
 def download():
     # Download the audio track of a youtube video and save it as a raw audio
     # file
-    
+
     files = os.listdir(path_to_lists)
 
     for file in files:
