@@ -39,19 +39,19 @@ def mel_scale_filter(sig,nfilt=40):
     for m in range(1, nfilt + 1):
         f_m_minus = int(bin[m - 1])
         f_m = int(bin[m])          
-        f_m_plus = int(bin[m + 1]) 
+        f_m_plus = int(bin[m + 1])
 
         for k in range(f_m_minus, f_m):
             fbank[m - 1, k] = (k - bin[m - 1]) / (bin[m] - bin[m - 1])
         for k in range(f_m, f_m_plus):
             fbank[m - 1, k] = (bin[m + 1] - k) / (bin[m + 1] - bin[m])
+        if f_m==f_m_plus:#added to avoid zero banks
+            fbank[m - 1, f_m] = 1
+
     filter_banks = np.dot(pow_frames, fbank.T)
     filter_banks = np.where(filter_banks == 0, np.finfo(float).eps, filter_banks)
     filter_banks = 20 * np.log10(filter_banks)
     return [[i[j] for i in filter_banks] for j in range(len(filter_banks[0]))]
-
-def discrete_cosine_transform():
-    pass
 
 def signal_from_spectrogram(spec,sr,window_length,window_overlap):
     data=signal.istft(spec, fs=sr, nperseg=window_length, noverlap=window_overlap)

@@ -8,10 +8,10 @@ from Signal import *
 from drum_environment import*
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.fft import dct
 
 def max_up(s,k):
     b=int(np.ceil(len(s[0])/k))
-    print(b)
     newS=[[0 for j in i] for i in s]
     for i in range(len(s)):
         for j in range(b):
@@ -78,13 +78,40 @@ def deep_map(l,f,it=1):
         l=[[f(j) for j in i] for i in l]
     return l
 
+# def refine(spec):
+#     new=[[0 for i in j] for j in spec]
+#     sleep_timer=10
+#     sleep=0
+#     for i,s in enumerate(spec):
+#         a=np.median(s)
+#         ratio=0.0
+#         b=(ratio+a*(1-ratio))
+
+#         for j,t in enumerate(s):
+#             a=[abs(access(s,j-k)) for k in range(2,6)]
+#             a.sort()
+#             a=a[1]
+#             b=(ratio+a*(1-ratio))
+#             if t>=b:
+#                 new[i][j]=1
+#     new=transpose(new)
+#     for i,s in enumerate(new):
+#         if sum(s)>0.8*len(s) and sleep==0:
+#             new[i]=[1 for j in s]
+#             sleep=sleep_timer+1
+#         else:
+#             new[i]=[0 for j in s]
+#         if sleep!=0:
+#             sleep=sleep-1
+#     return transpose(new)
+
 def refine(spec):
     new=[[0 for i in j] for j in spec]
     sleep_timer=10
     sleep=0
     for i,s in enumerate(spec):
         a=np.median(s)
-        ratio=0.03
+        ratio=0.0
         b=(ratio+a*(1-ratio))
 
         for j,t in enumerate(s):
@@ -96,7 +123,16 @@ def refine(spec):
                 new[i][j]=1
     new=transpose(new)
     for i,s in enumerate(new):
-        if sum(s)>0.85*len(s) and sleep==0:
+        counter=0
+        found=0
+        for j,p in enumerate(s):
+            if p==1 and access(new,i+1,j)==1:
+                counter=counter+1
+            else:
+                if counter>=10:
+                    found=1
+                counter=0
+        if found and sleep==0:
             new[i]=[1 for j in s]
             sleep=sleep_timer+1
         else:
@@ -116,23 +152,22 @@ s1=pre_emphasis_filter(s1)
 spec=mel_scale_filter(s1)
 
 spec=move_up(spec)
-spec=max_up(spec,11)
+#spec=max_up(spec,11)
 
-k=[[1,2,1],[0,0,0],[-1,-2,-1]] #sobel
-#k=[[1,1,1],[0,0,0],[-1,-1,-1]] #prewitt
+#k=[[1,2,1],[0,0,0],[-1,-2,-1]] #sobel
+k=[[1,1,1],[0,0,0],[-1,-1,-1]] #prewitt
 filtered=spec
 
 spec=convolve(spec,k)
-spec=refine(spec)
-
-
+spec_refine=refine(spec)
+spec=[[10. * np.log10(i) for i in j] for j in spec]
 fig, axs = plt.subplots(nrows=3)
 extent = s1.t()[0], s1.t()[-1], s1.freqs()[0], s1.freqs()[-1]
 axs[0].imshow(np.flipud(original),extent=extent)
 axs[0].axis('auto')
-axs[1].imshow(np.flipud(spec),extent=extent)
+axs[1].imshow(np.flipud(spec_refine),extent=extent)
 axs[1].axis('auto')
-axs[2].imshow(np.flipud(filtered),extent=extent)
+axs[2].imshow(np.flipud(spec),extent=extent)
 axs[2].axis('auto')
 
 plt.show()
