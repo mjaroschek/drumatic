@@ -7,10 +7,10 @@ from Pipeline import Pipeline
 from Signal import *
 from drum_environment import*
 import matplotlib.pyplot as plt
-from numpy import flipud,e,log,median,mean
+import numpy as np
 
 def max_up(s,k):
-    b=int(ceil(len(s[0])/k))
+    b=int(np.ceil(len(s[0])/k))
     print(b)
     newS=[[0 for j in i] for i in s]
     for i in range(len(s)):
@@ -29,7 +29,7 @@ def move_up(s):
     return [[i+m for i in j] for j in s]
     
 def sum_up(s,k):
-    b=int(ceil(len(s[0])/k))
+    b=int(np.ceil(len(s[0])/k))
     newS=[[0 for j in i] for i in s]
     for i in range(len(s)):
         for j in range(b):
@@ -58,8 +58,8 @@ def access(s,i,j=None):
 def convolve(m,k):
     m=transpose(m)
     new_m=[[0 for j in i] for i in m]
-    c_i=int(floor(len(k)/2))
-    c_j=int(floor(len(k[0])/2))
+    c_i=int(np.floor(len(k)/2))
+    c_j=int(np.floor(len(k[0])/2))
     for i in range(len(m)):
         for j in range(len(m[0])):
             v=0
@@ -83,7 +83,7 @@ def refine(spec):
     sleep_timer=10
     sleep=0
     for i,s in enumerate(spec):
-        a=median(s)
+        a=np.median(s)
         ratio=0.03
         b=(ratio+a*(1-ratio))
 
@@ -110,7 +110,7 @@ s1=read_wavefile(root_folder + "drum_short.wav");
 #s1=read_wavefile(root_folder + "test_mixed.wav");
 #s1=read_wavefile(root_folder + "test_mixed2.wav");
 #s1=read_wavefile(root_folder + "test_speech_short.wav");
-original=s1.spec_scaled
+original=s1.spec_scaled()
 
 s1=pre_emphasis_filter(s1)
 spec=mel_scale_filter(s1)
@@ -127,12 +127,12 @@ spec=refine(spec)
 
 
 fig, axs = plt.subplots(nrows=3)
-extent = s1.t[0], s1.t[-1], s1.freqs[0], s1.freqs[-1]
-axs[0].imshow(flipud(original),extent=extent)
+extent = s1.t()[0], s1.t()[-1], s1.freqs()[0], s1.freqs()[-1]
+axs[0].imshow(np.flipud(original),extent=extent)
 axs[0].axis('auto')
-axs[1].imshow(flipud(spec),extent=extent)
+axs[1].imshow(np.flipud(spec),extent=extent)
 axs[1].axis('auto')
-axs[2].imshow(flipud(filtered),extent=extent)
+axs[2].imshow(np.flipud(filtered),extent=extent)
 axs[2].axis('auto')
 
 plt.show()

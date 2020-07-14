@@ -1,4 +1,4 @@
-from numpy import ceil,floor,sqrt,flipud,log10,gcd,round,float64,linspace,zeros,absolute,dot,where,finfo
+import numpy as np
 from matplotlib.widgets import Slider,Button,TextBox
 from scipy import signal
 from random import randint
@@ -28,14 +28,14 @@ def mel_scale_filter(sig,nfilt=40):
     # and
     # http://practicalcryptography.com/miscellaneous/machine-learning/guide-mel-frequency-cepstral-coefficients-mfccs/
     low_freq_mel = 0
-    high_freq_mel = (2595 * log10(1 + (sig.sr / 2) / 700))  
-    mel_points = linspace(low_freq_mel, high_freq_mel, nfilt + 2)
+    high_freq_mel = (2595 * np.log10(1 + (sig.sr / 2) / 700))  
+    mel_points = np.linspace(low_freq_mel, high_freq_mel, nfilt + 2)
     hz_points = (700 * (10**(mel_points / 2595) - 1))
-    bin = floor((sig.stft_window_length + 1) * hz_points / sig.sr)
-    pow_frames=power_spectrum(sig)
+    bin = np.floor((sig.stft_window_length + 1) * hz_points / sig.sr)
+    pow_frames=sig.power_spectrum()
     pow_frames = [[i[j] for i in pow_frames] for j in range(len(pow_frames[0]))]
     
-    fbank = zeros((nfilt, int(floor(sig.stft_window_length / 2 + 1))))
+    fbank = np.zeros((nfilt, int(np.floor(sig.stft_window_length / 2 + 1))))
     for m in range(1, nfilt + 1):
         f_m_minus = int(bin[m - 1])
         f_m = int(bin[m])          
@@ -45,9 +45,9 @@ def mel_scale_filter(sig,nfilt=40):
             fbank[m - 1, k] = (k - bin[m - 1]) / (bin[m] - bin[m - 1])
         for k in range(f_m, f_m_plus):
             fbank[m - 1, k] = (bin[m + 1] - k) / (bin[m + 1] - bin[m])
-    filter_banks = dot(pow_frames, fbank.T)
-    filter_banks = where(filter_banks == 0, finfo(float).eps, filter_banks)
-    filter_banks = 20 * log10(filter_banks)
+    filter_banks = np.dot(pow_frames, fbank.T)
+    filter_banks = np.where(filter_banks == 0, np.finfo(float).eps, filter_banks)
+    filter_banks = 20 * np.log10(filter_banks)
     return [[i[j] for i in filter_banks] for j in range(len(filter_banks[0]))]
 
 def discrete_cosine_transform():
@@ -74,8 +74,8 @@ def read_wavefile(filename,start=0,length=0,unit="s"):
         total_length=info.frames
         sr=info.samplerate
         if unit=="s":
-            start_in_hz=int(round(start*sr))
-            length_in_hz=int(round(length*sr))
+            start_in_hz=int(np.round(start*sr))
+            length_in_hz=int(np.round(length*sr))
         else:
             start_in_hz=int(start)
             length_in_hz=int(length)
@@ -212,13 +212,13 @@ def normalize(sig):
 def data_by_seconds(sig,start,end,enlarge=True):
     # Get the data of a signal in a certain time interval. The enlarge parameter
     # controls if the resulting signal should be slightlly smaller or slightly
-    # bigger if rounding error occur.
+    # bigger if np.rounding error occur.
     if enlarge:
-        start=floor(start*sampleRate)
-        end=ceil(end*sampleRate)
+        start=np.floor(start*sampleRate)
+        end=np.ceil(end*sampleRate)
     else:
-        start=ceil(start*sampleRate)
-        end=floor(end*sampleRate)
+        start=np.ceil(start*sampleRate)
+        end=np.floor(end*sampleRate)
     return sig.data[start:end]
 
 def length_in_seconds(sig):
@@ -270,7 +270,7 @@ def read_signals(filename):
     # Load signal object from .sig file
     f=open(filename,"r")
     signals=[i.split(",") for i in f.readlines()]
-    signals=[Signal([float64(j) for j in i[1:]],int(i[0])) for i in signals]
+    signals=[Signal([np.float64(j) for j in i[1:]],int(i[0])) for i in signals]
     return signals
     
 def visualize(sigs,windows=None):
@@ -287,12 +287,12 @@ def visualize(sigs,windows=None):
 
     def update_axis_0(ival_start,interval_in_seconds):
         ival_start_in_seconds=ival_start/sigs[0].sr
-        ind_t0=max(int(floor(ival_start_in_seconds/sigs[0].t()[1])),0)
-        ind_t1=min(int(ceil((ival_start_in_seconds+interval_in_seconds)/sigs[0].t()[1])),len(sigs[0].t())-1)
+        ind_t0=max(int(np.floor(ival_start_in_seconds/sigs[0].t()[1])),0)
+        ind_t1=min(int(np.ceil((ival_start_in_seconds+interval_in_seconds)/sigs[0].t()[1])),len(sigs[0].t())-1)
         
         extent = sigs[0].t()[ind_t0], sigs[0].t()[ind_t1], sigs[0].freqs()[0], sigs[0].freqs()[-1]
         axs[0].clear()
-        axs[0].imshow(flipud([i[ind_t0:ind_t1] for i in sigs[0].spec_scaled()]),extent=extent)
+        axs[0].imshow(np.flipud([i[ind_t0:ind_t1] for i in sigs[0].spec_scaled()]),extent=extent)
         axs[0].axis('auto')
         fig.canvas.draw_idle()
 
@@ -310,9 +310,9 @@ def visualize(sigs,windows=None):
             v=windows[window_index][1]
             axs[1].scatter(x=range(windows[window_index][0][0]-ival_start,windows[window_index][0][1]-ival_start),y=[v for i in range(windows[window_index][0][1]-windows[window_index][0][0])],color="red",zorder=10,marker="s",s=13)
             if v< 0.7:
-                axs[1].text(x=windows[window_index][0][1]-ival_start,y=v+0.2,s=str(round(v,3)))
+                axs[1].text(x=windows[window_index][0][1]-ival_start,y=v+0.2,s=str(np.round(v,3)))
             else:
-                axs[1].text(x=windows[window_index][0][1]-ival_start,y=v-0.3,s=str(round(v,3)))
+                axs[1].text(x=windows[window_index][0][1]-ival_start,y=v-0.3,s=str(np.round(v,3)))
         
         axs[1].set_xmargin(0)
         axs[1].set_ybound(lower=-1,upper=1)
@@ -420,8 +420,8 @@ class Signal:
         
     def __computeSTFT__(self):
         (self.frequencies,self.times,self.spectrogram)=signal.stft(self.data,fs=self.sr,nperseg=self.stft_window_length,noverlap=self.stft_window_overlap)
-        self.spectrogram=[sqrt(i.real**2+i.imag**2) for i in self.spectrogram]
-        self.spectrogram_scaled=[10. * log10(i) for i in self.spectrogram]
+        self.spectrogram=[np.sqrt(i.real**2+i.imag**2) for i in self.spectrogram]
+        self.spectrogram_scaled=[10. * np.log10(i) for i in self.spectrogram]
 
     def freqs(self):
         if len(self.frequencies)==0:
@@ -447,5 +447,5 @@ class Signal:
         if len(self.ps)==0:
             if len(self.spectrogram)==0:
                 self.__computeSTFT__()
-            self.ps=(absolute(self.spectrogram)**2)/self.stft_window_length
+            self.ps=(np.absolute(self.spectrogram)**2)/self.stft_window_length
         return self.ps
