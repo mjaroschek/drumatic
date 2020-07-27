@@ -25,8 +25,8 @@ def max_up(s,k):
     # return newS
 
 def move_up(s):
-    m=min([min(i) for i in s])
-    return [[i+m for i in j] for j in s]
+    m=abs(min([min([j for j in i if np.isnan(j)==False]) for i in s]))
+    return [[i+m if np.isnan(i)==False else 0 for i in j] for j in s]
     
 def sum_up(s,k):
     b=int(np.ceil(len(s[0])/k))
@@ -115,24 +115,28 @@ def refine(spec):
         b=(ratio+a*(1-ratio))
 
         for j,t in enumerate(s):
-            a=[abs(access(s,j-k)) for k in range(2,6)]
+            a=[abs(access(s,j-k)) for k in range(2,5)]
             a.sort()
-            a=a[1]
+            a=a[0]
             b=(ratio+a*(1-ratio))
             if t>=b:
                 new[i][j]=1
     new=transpose(new)
+    onsets=0
     for i,s in enumerate(new):
         counter=0
         found=0
         for j,p in enumerate(s):
-            if p==1 and access(new,i+1,j)==1:
+            if p==1 or (access(new,i-1,j)==1 or access(new,i+1,j)==1):
                 counter=counter+1
             else:
-                if counter>=10:
-                    found=1
+                # if counter>=3:
+                #     found=found+1
+                if counter>=7:
+                    found=found+4
                 counter=0
-        if found and sleep==0:
+        if found>3 and sleep==0:
+            onsets=onsets+1
             new[i]=[1 for j in s]
             sleep=sleep_timer+1
         else:
@@ -140,36 +144,4 @@ def refine(spec):
         if sleep!=0:
             sleep=sleep-1
     return transpose(new)
-
-s1=read_wavefile(root_folder + "drum_short.wav");
-#s1=read_wavefile(root_folder + "drum_problem.wav");
-#s1=read_wavefile(root_folder + "test_mixed.wav");
-#s1=read_wavefile(root_folder + "test_mixed2.wav");
-#s1=read_wavefile(root_folder + "test_speech_short.wav");
-original=s1.spec_scaled()
-
-s1=pre_emphasis_filter(s1)
-spec=mel_scale_filter(s1)
-
-spec=move_up(spec)
-#spec=max_up(spec,11)
-
-#k=[[1,2,1],[0,0,0],[-1,-2,-1]] #sobel
-k=[[1,1,1],[0,0,0],[-1,-1,-1]] #prewitt
-filtered=spec
-
-spec=convolve(spec,k)
-spec_refine=refine(spec)
-spec=[[10. * np.log10(i) for i in j] for j in spec]
-fig, axs = plt.subplots(nrows=3)
-extent = s1.t()[0], s1.t()[-1], s1.freqs()[0], s1.freqs()[-1]
-axs[0].imshow(np.flipud(original),extent=extent)
-axs[0].axis('auto')
-axs[1].imshow(np.flipud(spec_refine),extent=extent)
-axs[1].axis('auto')
-axs[2].imshow(np.flipud(spec),extent=extent)
-axs[2].axis('auto')
-
-plt.show()
-plt.close()
 

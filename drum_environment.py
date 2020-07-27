@@ -73,4 +73,4 @@ process_all=True
 
 # Options for STFT computation
 stft_window_length=256
-stft_window_overlap=128
+stft_window_overlap=int(stft_window_length/2)

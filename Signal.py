@@ -22,20 +22,14 @@ def pre_emphasis_filter(sig,coeff=0.97):
     # https://haythamfayek.com/2016/04/21/speech-processing-for-machine-learning.html
     return Signal([i-coeff*j for i,j in zip(sig.data,sig.data[1:] + [0])],sig.sr)
 
-def mel_scale_filter(sig,nfilt=40):
-    # From
-    # https://haythamfayek.com/2016/04/21/speech-processing-for-machine-learning.html
-    # and
-    # http://practicalcryptography.com/miscellaneous/machine-learning/guide-mel-frequency-cepstral-coefficients-mfccs/
+def init_mel_filter(sr,stft_window_length,nfilt=40):
     low_freq_mel = 0
-    high_freq_mel = (2595 * np.log10(1 + (sig.sr / 2) / 700))  
+    high_freq_mel = (2595 * np.log10(1 + (sr / 2) / 700))  
     mel_points = np.linspace(low_freq_mel, high_freq_mel, nfilt + 2)
     hz_points = (700 * (10**(mel_points / 2595) - 1))
-    bin = np.floor((sig.stft_window_length + 1) * hz_points / sig.sr)
-    pow_frames=sig.power_spectrum()
-    pow_frames = [[i[j] for i in pow_frames] for j in range(len(pow_frames[0]))]
-    
-    fbank = np.zeros((nfilt, int(np.floor(sig.stft_window_length / 2 + 1))))
+    bin = np.floor((stft_window_length + 1) * hz_points / sr)
+
+    fbank = np.zeros((nfilt, int(np.floor(stft_window_length / 2 + 1))))
     for m in range(1, nfilt + 1):
         f_m_minus = int(bin[m - 1])
         f_m = int(bin[m])          
@@ -47,6 +41,15 @@ def mel_scale_filter(sig,nfilt=40):
             fbank[m - 1, k] = (bin[m + 1] - k) / (bin[m + 1] - bin[m])
         if f_m==f_m_plus:#added to avoid zero banks
             fbank[m - 1, f_m] = 1
+    return fbank
+    
+def mel_scale_filter(sig,fbank):
+    # From
+    # https://haythamfayek.com/2016/04/21/speech-processing-for-machine-learning.html
+    # and
+    # http://practicalcryptography.com/miscellaneous/machine-learning/guide-mel-frequency-cepstral-coefficients-mfccs/
+    pow_frames=sig.power_spectrum()
+    pow_frames = [[i[j] for i in pow_frames] for j in range(len(pow_frames[0]))]
 
     filter_banks = np.dot(pow_frames, fbank.T)
     filter_banks = np.where(filter_banks == 0, np.finfo(float).eps, filter_banks)
@@ -169,7 +172,6 @@ def onset_detection_spec(sig,win_buf_len,percentage,onset_delta,look_back,sleep_
     sleep_timer=0
     window_buffer=spec[:win_buf_len]
     window_step_difference=sig.stft_window_length-sig.stft_window_overlap
-    
     for j,s in enumerate(spec,start=1):
         if j%10000==0:
             print("        " + str(j) + "/" + str(len(spec)))
@@ -183,6 +185,9 @@ def onset_detection_spec(sig,win_buf_len,percentage,onset_delta,look_back,sleep_
     onset_signal_data=onset_signal_data + [0]*(len(sig.data)-len(onset_signal_data))
     return Signal(onset_signal_data,sig.sr)
 
+def live_onset_experimental(spec):
+    pass
+    
 def onset_detection_with_model(sig,m,sleep_after_onset):
     # Detect onsets via a trained model that takes the stft data of the signal.
     def decision(start,end):
